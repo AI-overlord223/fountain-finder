@@ -1,33 +1,14 @@
-import { renderToStaticMarkup } from 'react-dom/server'
-import { Droplet } from 'lucide-react'
 import L from 'leaflet'
 
-/**
- * Lucide Droplet as a blue water-themed pin for Leaflet markers (modern, on-brand).
- */
-const dropletMarkup = renderToStaticMarkup(
-  <div
-    style={{
-      width: 40,
-      height: 40,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      filter: 'drop-shadow(0 6px 10px rgba(15, 23, 42, 0.35))',
-      borderRadius: 9999,
-      background: 'rgba(14, 165, 233, 0.12)',
-      border: '1px solid rgba(255, 255, 255, 0.85)',
-    }}
-    aria-hidden
-  >
-    <Droplet size={36} strokeWidth={1.75} stroke="#ffffff" fill="#0ea5e9" />
-  </div>
-)
-
-export const fountainMarkerIcon = L.divIcon({
-  className: 'fountain-droplet-marker',
-  html: dropletMarkup,
-  iconSize: [40, 40],
-  iconAnchor: [20, 36],
-  popupAnchor: [0, -32],
+// Image-based blue marker icon to avoid any divIcon/SVG rendering issues.
+// Using reliable CDN URLs ensures the marker always appears.
+export const fountainMarkerIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl:
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
 })

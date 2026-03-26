@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { Loader2 } from 'lucide-react'
 import {
   getFountainDisplayInfo,
@@ -8,8 +9,6 @@ import {
   type OverpassElement,
 } from '../lib/overpass'
 import { fountainMarkerIcon } from '../lib/fountainMarkerIcon'
-
-import 'leaflet/dist/leaflet.css'
 
 const DEFAULT_CENTER: [number, number] = [40.7128, -74.006]
 
@@ -41,16 +40,45 @@ function toRadians(deg: number): number {
 }
 
 function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  // Full Haversine implementation (great-circle distance).
+  // Returns distance in miles.
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return NaN
+
   const R = 3958.7613 // Earth radius in miles
-  const dLat = toRadians(lat2 - lat1)
-  const dLon = toRadians(lon2 - lon1)
+
+  const phi1 = toRadians(lat1)
+  const phi2 = toRadians(lat2)
+  const dPhi = toRadians(lat2 - lat1)
+  const dLambda = toRadians(lon2 - lon1)
+
+  const sinDphi = Math.sin(dPhi / 2)
+  const sinDlambda = Math.sin(dLambda / 2)
+
   const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) ** 2
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    sinDphi * sinDphi + Math.cos(phi1) * Math.cos(phi2) * sinDlambda * sinDlambda
+  // Guard against tiny floating point drift.
+  const aClamped = Math.min(1, Math.max(0, a))
+
+  const c = 2 * Math.atan2(Math.sqrt(aClamped), Math.sqrt(1 - aClamped))
   return R * c
+}
+
+function sortFountainsByMiles<T extends { milesAway: number | null; stableId: string }>(
+  items: T[]
+): T[] {
+  // Full sorting logic:
+  // - smallest `milesAway` first
+  // - `null`/NaN distances go last
+  // - stableId tie-breaker for deterministic ordering
+  return [...items].sort((a, b) => {
+    const aVal =
+      a.milesAway == null || Number.isNaN(a.milesAway) ? Number.POSITIVE_INFINITY : a.milesAway
+    const bVal =
+      b.milesAway == null || Number.isNaN(b.milesAway) ? Number.POSITIVE_INFINITY : b.milesAway
+
+    if (aVal !== bVal) return aVal - bVal
+    return a.stableId.localeCompare(b.stableId)
+  })
 }
 
 export function MapView({
@@ -135,42 +163,75 @@ export function MapView({
     )
   }, [])
 
-  const isGenericTitle = useCallback((title: string): boolean => {
-    const normalized = title.trim().toLowerCase()
-    return (
-      normalized === 'drinking water' ||
-      normalized.startsWith('drinking water') ||
-      normalized.includes('drinking water —')
-    )
-  }, [])
+  const getBaseFountainName = useCallback(
+    (el: OverpassElement): string => {
+      const tags = el.tags
 
-  const getCardTitle = useCallback(
-    (el: OverpassElement, miles: number | null): string => {
-      const { title } = getFountainDisplayInfo(el)
+      const rawName =
+        tags?.['name'] ??
+        tags?.['name:en'] ??
+        tags?.['name:local'] ??
+        tags?.alt_name ??
+        tags?.['alt_name:en']
+
+      const name = rawName?.trim()
+      if (name) return name
+
       const street = getStreetLabel(el)
+      if (street) return street
 
-      if (!miles || Number.isNaN(miles)) {
-        // If distance isn't available, prefer something street-based for a stable "human" card.
-        if (street) return `Fountain near ${street}`
-        const lat = el.lat
-        const lon = el.lon
-        if (lat != null && lon != null)
-          return `Fountain at ${lat.toFixed(4)}, ${lon.toFixed(4)}`
-        return title
+      const lat = el.lat
+      const lon = el.lon
+      if (lat != null && lon != null) {
+        return `Water Station near ${lat.toFixed(4)}, ${lon.toFixed(4)}`
       }
 
-      if (isGenericTitle(title)) {
-        if (street) {
-          return `Fountain near ${street} • ${miles.toFixed(2)} mi away`
-        }
-        return `Fountain • ${miles.toFixed(2)} mi away`
-      }
-
-      // Ensure uniqueness even if the OSM `name` repeats; distance suffix makes duplicates extremely unlikely.
-      return `${title} • ${miles.toFixed(2)} mi away`
+      return 'Water Station'
     },
-    [getStreetLabel, isGenericTitle]
+    [getStreetLabel]
   )
+
+  const getCardTitle = useCallback((el: OverpassElement): string => {
+    return getBaseFountainName(el)
+  }, [getBaseFountainName])
+
+  const fountainCards = useMemo(() => {
+    type FountainCard = {
+      stableId: string
+      lat: number
+      lon: number
+      milesAway: number | null
+      displayTitle: string
+      displaySubtitle?: string
+    }
+
+    const cards: FountainCard[] = []
+
+    for (const el of fountains) {
+      const lat = el.lat
+      const lon = el.lon
+      if (lat == null || lon == null) continue
+
+      const { stableId, subtitle } = getFountainDisplayInfo(el)
+      const milesAway =
+        origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
+
+      const displayTitle = getCardTitle(el)
+      const street = getStreetLabel(el)
+      const displaySubtitle = subtitle ?? street ?? undefined
+
+      cards.push({
+        stableId,
+        lat,
+        lon,
+        milesAway: milesAway == null || Number.isNaN(milesAway) ? null : milesAway,
+        displayTitle,
+        displaySubtitle,
+      })
+    }
+
+    return sortFountainsByMiles(cards)
+  }, [fountains, origin, getCardTitle, getStreetLabel])
 
   // Force correct map rendering when layout changes (sidebar open/close, drawer, rotation).
   useEffect(() => {
@@ -206,18 +267,8 @@ export function MapView({
     fountainsLayerRef.current.clearLayers()
     fountainMarkersRef.current = {}
 
-    for (const el of fountains) {
-      const lat = el.lat
-      const lon = el.lon
-      if (lat == null || lon == null) continue
-
-      const { stableId, title, subtitle } = getFountainDisplayInfo(el)
-
-      const miles =
-        origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
-      const displayTitle = getCardTitle(el, miles)
-      const displaySubtitle =
-        subtitle && !isGenericTitle(title) ? subtitle : getStreetLabel(el) ?? undefined
+    for (const card of fountainCards) {
+      const { stableId, lat, lon, displayTitle, displaySubtitle } = card
 
       const directionsUrl = googleMapsDirectionsUrl(lat, lon)
       const popupHtml = `
@@ -247,24 +298,36 @@ export function MapView({
       fountainMarkersRef.current[stableId] = marker
     }
 
-    // If a card was selected before the search finished, re-open popup after rebuild.
-    if (activeStableId) {
-      fountainMarkersRef.current[activeStableId]?.openPopup()
-    }
-
     // Make sure tiles/markers match container size.
     mapInstance.invalidateSize()
   }, [
     mapInstance,
-    fountains,
-    origin,
-    activeStableId,
+    fountainCards,
     escapeHtml,
-    getCardTitle,
-    getStreetLabel,
-    isGenericTitle,
-    fountainMarkersRef,
   ])
+
+  // If a card was selected before the search finished, re-open popup after rebuild.
+  useEffect(() => {
+    if (!mapInstance || !activeStableId) return
+    fountainMarkersRef.current[activeStableId]?.openPopup()
+  }, [mapInstance, activeStableId, fountains])
+
+  // After every search, zoom the map to the bounds of all found markers.
+  useEffect(() => {
+    if (!mapInstance) return
+    const latlngs: [number, number][] = []
+    for (const el of fountains) {
+      if (el.lat == null || el.lon == null) continue
+      latlngs.push([el.lat, el.lon])
+    }
+    if (latlngs.length === 0) return
+
+    mapInstance.fitBounds(L.latLngBounds(latlngs), {
+      padding: [30, 30],
+      maxZoom: 17,
+      animate: true,
+    })
+  }, [mapInstance, fountains])
 
   // Drawer open/close can affect perceived container sizing on mobile.
   useEffect(() => {
@@ -393,23 +456,14 @@ export function MapView({
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {fountains.map((el) => {
-                const lat = el.lat
-                const lon = el.lon
-                if (lat == null || lon == null) return null
-
-                    const { stableId } = getFountainDisplayInfo(el)
-                    const miles =
-                      origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
+              {fountainCards.map((card) => {
+                    const { stableId, lat, lon, milesAway, displayTitle, displaySubtitle } = card
                     const milesLabel =
-                      miles == null ? 'Distance unavailable' : `${miles.toFixed(2)} miles away`
-
-                    const displayTitle = getCardTitle(el, miles)
-                    const displaySubtitle = getStreetLabel(el) ?? undefined
+                      milesAway == null ? 'Distance unavailable' : `${milesAway.toFixed(2)} miles away`
 
                 return (
                   <button
-                    key={`card-${el.type}-${el.id}`}
+                    key={`card-${stableId}`}
                     type="button"
                     onClick={() => selectFountain(lat, lon, stableId)}
                     className={[
