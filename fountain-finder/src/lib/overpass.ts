@@ -18,6 +18,71 @@ interface OverpassResponse {
   elements: OverpassElement[]
 }
 
+function tag(tags: Record<string, string> | undefined, key: string): string | undefined {
+  return tags?.[key]
+}
+
+function firstTag(
+  tags: Record<string, string> | undefined,
+  keys: string[]
+): string | undefined {
+  for (const k of keys) {
+    const v = tag(tags, k)
+    if (v != null && v.trim().length > 0) return v
+  }
+  return undefined
+}
+
+export function getFountainDisplayInfo(el: OverpassElement): {
+  stableId: string
+  title: string
+  subtitle?: string
+} {
+  const lat = el.lat
+  const lon = el.lon
+  const tags = el.tags
+
+  const roundedLat = lat != null ? lat.toFixed(5) : '0.00000'
+  const roundedLon = lon != null ? lon.toFixed(5) : '0.00000'
+  const stableId = `fountain-${roundedLat}-${roundedLon}`
+
+  // "Human" naming preference:
+  // 1) any name-* fields
+  // 2) brand/operator/ref
+  // 3) address-ish fields
+  // 4) fallback to a location-based identifier (no generic placeholders)
+  const title =
+    firstTag(tags, ['name', 'name:en', 'name:local', 'alt_name']) ??
+    firstTag(tags, ['brand']) ??
+    firstTag(tags, ['ref']) ??
+    firstTag(tags, ['description', 'operator', 'amenity']) ??
+    (() => {
+      const street = firstTag(tags, ['addr:street', 'street', 'road'])
+      const house = firstTag(tags, ['addr:housenumber', 'housenumber'])
+      const place = street
+        ? house
+          ? `${house} ${street}`
+          : street
+        : undefined
+      return place
+        ? `Drinking water — ${place}`
+        : `Drinking water — ${roundedLat}, ${roundedLon}`
+    })()
+
+  // Subtitle: show address/operator context when available.
+  const addrStreet = firstTag(tags, ['addr:street', 'street', 'road'])
+  const addrHouse = firstTag(tags, ['addr:housenumber', 'housenumber'])
+  const operator = firstTag(tags, ['operator', 'brand'])
+
+  const subtitleCandidates: string[] = []
+  if (addrStreet) subtitleCandidates.push(addrHouse ? `${addrHouse} ${addrStreet}` : addrStreet)
+  if (operator && operator !== title) subtitleCandidates.push(operator)
+
+  const subtitle = subtitleCandidates.length ? subtitleCandidates.slice(0, 2).join(' • ') : undefined
+
+  return { stableId, title, subtitle }
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -146,14 +211,12 @@ export function getSampleFountainsNear(
   ]
 }
 
+// Backwards-compatible helper (used in older UI code).
 export function fountainDisplayName(tags: Record<string, string> | undefined): string {
-  if (!tags) return 'Drinking fountain'
   return (
-    tags.name ??
-    tags['name:en'] ??
-    tags['name:local'] ??
-    tags.ref ??
-    'Drinking fountain'
+    firstTag(tags, ['name', 'name:en', 'name:local', 'alt_name']) ??
+    firstTag(tags, ['brand', 'ref', 'description', 'operator']) ??
+    'Drinking water'
   )
 }
 

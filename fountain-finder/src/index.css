@@ -7,7 +7,7 @@
 
 .leaflet-pane,
 .leaflet-container {
-  background: #0b1220;
+  background: transparent;
 }
 
 html,
@@ -40,9 +40,17 @@ body {
 .fountain-droplet-marker {
   background: transparent !important;
   border: none !important;
+  width: 40px !important;
+  height: 40px !important;
   will-change: transform;
   animation: fountainBounce 0.9s ease-out both;
   transform-origin: center bottom;
+}
+
+.fountain-droplet-marker svg {
+  display: block;
+  width: 36px;
+  height: 36px;
 }
 
 @keyframes fountainBounce {

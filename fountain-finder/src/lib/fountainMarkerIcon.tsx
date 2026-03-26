@@ -13,7 +13,10 @@ const dropletMarkup = renderToStaticMarkup(
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      filter: 'drop-shadow(0 2px 5px rgba(15, 23, 42, 0.4))',
+      filter: 'drop-shadow(0 6px 10px rgba(15, 23, 42, 0.35))',
+      borderRadius: 9999,
+      background: 'rgba(14, 165, 233, 0.12)',
+      border: '1px solid rgba(255, 255, 255, 0.85)',
     }}
     aria-hidden
   >
