@@ -37,6 +37,42 @@ body {
   border: none;
 }
 
+.user-location-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #2563eb;
+  box-shadow:
+    0 0 0 2px rgba(37, 99, 235, 0.35),
+    0 10px 22px rgba(2, 6, 23, 0.35);
+  position: relative;
+  margin: 2px; /* visually center inside 16x16 divIcon anchor */
+}
+
+.user-location-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid rgba(37, 99, 235, 0.55);
+  animation: userPulseRing 1.4s ease-out infinite;
+}
+
+@keyframes userPulseRing {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
 .fountain-droplet-marker {
   background: transparent !important;
   border: none !important;

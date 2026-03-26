@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { Loader2 } from 'lucide-react'
 import {
   getFountainDisplayInfo,
-  openGoogleMapsDirections,
+  googleMapsDirectionsUrl,
   type OverpassElement,
 } from '../lib/overpass'
 import { fountainMarkerIcon } from '../lib/fountainMarkerIcon'
@@ -15,7 +15,7 @@ const DEFAULT_CENTER: [number, number] = [40.7128, -74.006]
 
 const userIcon = L.divIcon({
   className: 'user-location-marker',
-  html: `<div style="width:16px;height:16px;border-radius:9999px;border:2px solid #fff;background:#2563eb;box-shadow:0 1px 3px rgba(0,0,0,0.35),0 0 0 2px rgba(37,99,235,0.35);"></div>`,
+  html: `<div class="user-location-pulse" aria-hidden="true"></div>`,
   iconSize: [16, 16],
   iconAnchor: [8, 8],
 })
@@ -53,34 +53,6 @@ function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number):
   return R * c
 }
 
-function FountainPopupBody({
-  title,
-  subtitle,
-  lat,
-  lon,
-}: {
-  title: string
-  subtitle?: string
-  lat: number
-  lon: number
-}) {
-  return (
-    <div className="min-w-[12rem] space-y-2 text-sm">
-      <div>
-        <p className="font-semibold text-slate-950">{title}</p>
-        {subtitle ? <p className="text-xs text-slate-600">{subtitle}</p> : null}
-      </div>
-      <button
-        type="button"
-        onClick={() => openGoogleMapsDirections(lat, lon)}
-        className="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
-      >
-        Get Directions
-      </button>
-    </div>
-  )
-}
-
 export function MapView({
   userPosition,
   fountains,
@@ -107,6 +79,11 @@ export function MapView({
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null)
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [activeStableId, setActiveStableId] = useState<string | null>(null)
+  const mapHostRef = useRef<HTMLDivElement | null>(null)
+  const dragStartYRef = useRef<number | null>(null)
+
+  const fountainsLayerRef = useRef<L.FeatureGroup | null>(null)
+  const fountainMarkersRef = useRef<Record<string, L.Marker>>({})
 
   const origin = userPosition
   const center = userPosition ?? searchCenter ?? DEFAULT_CENTER
@@ -125,34 +102,191 @@ export function MapView({
     onSearchArea(c.lat, c.lng, searchRadiusMiles)
   }
 
-  const openMarkerPopupByStableId = useCallback(
-    (stableId: string, lat: number, lon: number) => {
-      if (!mapInstance) return
-      mapInstance.eachLayer((layer) => {
-        if (layer instanceof L.Marker) {
-          const opts = layer.options as unknown as { title?: unknown }
-          const titleMatch = String(opts.title) === stableId
-          const latLng = layer.getLatLng()
-          const coordMatch =
-            Math.abs(latLng.lat - lat) < 1e-6 && Math.abs(latLng.lng - lon) < 1e-6
-          if (titleMatch || coordMatch) layer.openPopup()
-        }
-      })
-    },
-    [mapInstance]
-  )
-
   const selectFountain = useCallback(
     (lat: number, lon: number, stableId: string) => {
       setActiveStableId(stableId)
       if (!mapInstance) return
       mapInstance.flyTo([lat, lon], 17, { duration: 1.3 })
-      mapInstance.once('moveend', () =>
-        openMarkerPopupByStableId(stableId, lat, lon)
-      )
+      mapInstance.once('moveend', () => {
+        const marker = fountainMarkersRef.current[stableId]
+        marker?.openPopup()
+      })
     },
-    [mapInstance, openMarkerPopupByStableId]
+    [mapInstance]
   )
+
+  const escapeHtml = useCallback((input: string): string => {
+    return input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+  }, [])
+
+  const getStreetLabel = useCallback((el: OverpassElement): string | null => {
+    const t = el.tags
+    return (
+      t?.['addr:street'] ??
+      t?.street ??
+      t?.road ??
+      t?.['addr:route'] ??
+      null
+    )
+  }, [])
+
+  const isGenericTitle = useCallback((title: string): boolean => {
+    const normalized = title.trim().toLowerCase()
+    return (
+      normalized === 'drinking water' ||
+      normalized.startsWith('drinking water') ||
+      normalized.includes('drinking water —')
+    )
+  }, [])
+
+  const getCardTitle = useCallback(
+    (el: OverpassElement, miles: number | null): string => {
+      const { title } = getFountainDisplayInfo(el)
+      const street = getStreetLabel(el)
+
+      if (!miles || Number.isNaN(miles)) {
+        // If distance isn't available, prefer something street-based for a stable "human" card.
+        if (street) return `Fountain near ${street}`
+        const lat = el.lat
+        const lon = el.lon
+        if (lat != null && lon != null)
+          return `Fountain at ${lat.toFixed(4)}, ${lon.toFixed(4)}`
+        return title
+      }
+
+      if (isGenericTitle(title)) {
+        if (street) {
+          return `Fountain near ${street} • ${miles.toFixed(2)} mi away`
+        }
+        return `Fountain • ${miles.toFixed(2)} mi away`
+      }
+
+      // Ensure uniqueness even if the OSM `name` repeats; distance suffix makes duplicates extremely unlikely.
+      return `${title} • ${miles.toFixed(2)} mi away`
+    },
+    [getStreetLabel, isGenericTitle]
+  )
+
+  // Force correct map rendering when layout changes (sidebar open/close, drawer, rotation).
+  useEffect(() => {
+    if (!mapInstance || !mapHostRef.current) return
+
+    const host = mapHostRef.current
+    const ro = new ResizeObserver(() => {
+      mapInstance.invalidateSize()
+    })
+    ro.observe(host)
+
+    const onWinResize = () => mapInstance.invalidateSize()
+    window.addEventListener('resize', onWinResize)
+
+    // Also invalidate after the next paint; avoids the common "top-left ghost markers" symptom.
+    const t = window.setTimeout(() => mapInstance.invalidateSize(), 50)
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', onWinResize)
+      window.clearTimeout(t)
+    }
+  }, [mapInstance])
+
+  // Rebuild fountain markers in a FeatureGroup (clear-before-add on each new search).
+  useEffect(() => {
+    if (!mapInstance) return
+
+    if (!fountainsLayerRef.current) {
+      fountainsLayerRef.current = L.featureGroup().addTo(mapInstance)
+    }
+
+    fountainsLayerRef.current.clearLayers()
+    fountainMarkersRef.current = {}
+
+    for (const el of fountains) {
+      const lat = el.lat
+      const lon = el.lon
+      if (lat == null || lon == null) continue
+
+      const { stableId, title, subtitle } = getFountainDisplayInfo(el)
+
+      const miles =
+        origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
+      const displayTitle = getCardTitle(el, miles)
+      const displaySubtitle =
+        subtitle && !isGenericTitle(title) ? subtitle : getStreetLabel(el) ?? undefined
+
+      const directionsUrl = googleMapsDirectionsUrl(lat, lon)
+      const popupHtml = `
+        <div class="min-w-[16rem] space-y-2">
+          <div class="font-semibold text-slate-950">${escapeHtml(displayTitle)}</div>
+          ${
+            displaySubtitle
+              ? `<div class="text-xs text-slate-600">${escapeHtml(displaySubtitle)}</div>`
+              : ''
+          }
+          <a href="${directionsUrl}" target="_blank" rel="noopener noreferrer"
+             class="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]">
+             Get Directions
+          </a>
+        </div>
+      `
+
+      const marker = L.marker([lat, lon], {
+        icon: fountainMarkerIcon,
+        title: stableId,
+        zIndexOffset: 200,
+      })
+
+      marker.bindPopup(popupHtml, { maxWidth: 280 })
+      marker.on('click', () => setActiveStableId(stableId))
+      marker.addTo(fountainsLayerRef.current)
+      fountainMarkersRef.current[stableId] = marker
+    }
+
+    // If a card was selected before the search finished, re-open popup after rebuild.
+    if (activeStableId) {
+      fountainMarkersRef.current[activeStableId]?.openPopup()
+    }
+
+    // Make sure tiles/markers match container size.
+    mapInstance.invalidateSize()
+  }, [
+    mapInstance,
+    fountains,
+    origin,
+    activeStableId,
+    escapeHtml,
+    getCardTitle,
+    getStreetLabel,
+    isGenericTitle,
+    fountainMarkersRef,
+  ])
+
+  // Drawer open/close can affect perceived container sizing on mobile.
+  useEffect(() => {
+    if (!mapInstance) return
+    const t = window.setTimeout(() => mapInstance.invalidateSize(), 0)
+    return () => window.clearTimeout(t)
+  }, [mapInstance, mobileSheetOpen])
+
+  // Mobile swipe handling (drawer).
+  const onSheetTouchStart = (e: React.TouchEvent) => {
+    dragStartYRef.current = e.touches[0]?.clientY ?? null
+  }
+
+  const onSheetTouchMove = (e: React.TouchEvent) => {
+    if (dragStartYRef.current == null) return
+    const currentY = e.touches[0]?.clientY
+    if (currentY == null) return
+    const dy = currentY - dragStartYRef.current
+    // Swipe up => open, swipe down => close
+    if (!mobileSheetOpen && dy < -50) setMobileSheetOpen(true)
+    if (mobileSheetOpen && dy > 50) setMobileSheetOpen(false)
+  }
 
   const PanelContent = ({ dense }: { dense?: boolean }) => {
     return (
@@ -264,13 +398,14 @@ export function MapView({
                 const lon = el.lon
                 if (lat == null || lon == null) return null
 
-                const { stableId, title, subtitle } = getFountainDisplayInfo(el)
-                const miles =
-                  origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
-                const milesLabel =
-                  miles == null
-                    ? 'Distance unavailable'
-                    : `${miles.toFixed(2)} miles away`
+                    const { stableId } = getFountainDisplayInfo(el)
+                    const miles =
+                      origin == null ? null : haversineMiles(origin[0], origin[1], lat, lon)
+                    const milesLabel =
+                      miles == null ? 'Distance unavailable' : `${miles.toFixed(2)} miles away`
+
+                    const displayTitle = getCardTitle(el, miles)
+                    const displaySubtitle = getStreetLabel(el) ?? undefined
 
                 return (
                   <button
@@ -285,13 +420,17 @@ export function MapView({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">{title}</div>
-                        {subtitle ? (
-                          <div className="mt-0.5 truncate text-[11px] text-white/70">{subtitle}</div>
-                        ) : null}
-                        <div className="mt-1 text-xs font-bold text-emerald-200">
-                          {milesLabel}
-                        </div>
+                            <div className="truncate text-sm font-semibold text-white">
+                              {displayTitle}
+                            </div>
+                            {displaySubtitle ? (
+                              <div className="mt-0.5 truncate text-[11px] text-white/70">
+                                {displaySubtitle}
+                              </div>
+                            ) : null}
+                            <div className="mt-1 text-xs font-bold text-emerald-200">
+                              {milesLabel}
+                            </div>
                       </div>
 
                       <span className="rounded-full bg-emerald-400 px-2.5 py-1 text-[11px] font-semibold text-emerald-950 shadow-sm">
@@ -304,7 +443,11 @@ export function MapView({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          openGoogleMapsDirections(lat, lon)
+                          window.open(
+                            googleMapsDirectionsUrl(lat, lon),
+                            '_blank',
+                            'noopener,noreferrer'
+                          )
                         }}
                         className="w-full rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-[12px] font-semibold text-white transition hover:bg-white/15 active:scale-[0.98]"
                       >
@@ -327,7 +470,7 @@ export function MapView({
         <PanelContent />
       </div>
 
-      <div className="relative flex-1">
+      <div className="relative flex-1" ref={mapHostRef}>
         <MapContainer
           center={center}
           zoom={13}
@@ -336,72 +479,76 @@ export function MapView({
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            // High-contrast, professional light basemap without labels.
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png"
+            // High-visibility street-style with labels.
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png"
           />
           <RecenterOnUser position={userPosition} />
           <MapInstanceBridge onReady={handleMapReady} />
 
           {userPosition ? (
             <Marker position={userPosition} icon={userIcon}>
-              <Popup>You are here</Popup>
             </Marker>
           ) : null}
-
-          {fountains.map((el) => {
-            const lat = el.lat
-            const lon = el.lon
-            if (lat == null || lon == null) return null
-
-            const { stableId, title, subtitle } = getFountainDisplayInfo(el)
-            return (
-              <Marker
-                key={`${el.type}-${el.id}`}
-                position={[lat, lon]}
-                icon={fountainMarkerIcon}
-                title={stableId}
-                zIndexOffset={200}
-                eventHandlers={{
-                  click: () => setActiveStableId(stableId),
-                }}
-              >
-                <Popup>
-                  <FountainPopupBody
-                    title={title}
-                    subtitle={subtitle}
-                    lat={lat}
-                    lon={lon}
-                  />
-                </Popup>
-              </Marker>
-            )
-          })}
         </MapContainer>
       </div>
 
       {/* Mobile: Bottom sheet for search + results */}
       <div className="lg:hidden">
-        {!mobileSheetOpen ? (
-          <button
-            type="button"
-            onClick={() => setMobileSheetOpen(true)}
-            className="fixed bottom-4 left-1/2 z-[1300] -translate-x-1/2 rounded-full border border-white/20 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white shadow-lg backdrop-blur-[10px] active:scale-[0.98]"
-          >
-            {fountains.length ? `Fountains (${fountains.length})` : 'Find Fountains'}
-          </button>
-        ) : (
-          <div className="fixed inset-0 z-[1250]">
+        {/* Collapsed drawer (default): ~15% height, shows only Search button. */}
+        <div className="fixed inset-x-0 bottom-0 z-[1250]">
+          {/* Backdrop only when expanded */}
+          {mobileSheetOpen ? (
             <button
               type="button"
               onClick={() => setMobileSheetOpen(false)}
               className="absolute inset-0 bg-black/30"
               aria-label="Close results"
             />
-            <div className="absolute left-0 right-0 bottom-0 max-h-[78vh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-white/10 p-3 backdrop-blur-[12px] shadow-[0_-30px_90px_rgba(0,0,0,0.35)]">
-              <PanelContent dense />
+          ) : null}
+
+          <div
+            className="relative rounded-t-3xl border-t border-white/10 bg-white/10 p-3 backdrop-blur-[12px] shadow-[0_-30px_90px_rgba(0,0,0,0.35)]"
+            style={{
+              height: mobileSheetOpen ? '85vh' : '15vh',
+              transition: 'height 220ms ease',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Swipe handle */}
+            <div
+              className="mb-2 flex h-6 cursor-grab items-center justify-center"
+              onTouchStart={onSheetTouchStart}
+              onTouchMove={onSheetTouchMove}
+            >
+              <div className="h-1.5 w-12 rounded-full bg-white/30" />
             </div>
+
+            {/* Collapsed content */}
+            {!mobileSheetOpen ? (
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSearchClick}
+                  disabled={loading || !mapInstance}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/25 bg-white/20 px-4 py-3.5 text-sm font-semibold text-white shadow-sm backdrop-blur-xl transition active:scale-[0.98] hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden />
+                      <span>Searching...</span>
+                    </>
+                  ) : (
+                    <span>Search</span>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="h-full overflow-y-auto">
+                <PanelContent dense />
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   )
