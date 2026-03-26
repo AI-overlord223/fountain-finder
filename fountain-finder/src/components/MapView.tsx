@@ -444,68 +444,75 @@ export function MapView({
             >
               Search Radius: {searchRadiusMiles.toFixed(1)} miles
             </div>
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step="0.1"
-              value={searchRadiusMiles}
-              onPointerDown={() => {
-                isSliderInteractingRef.current = true
-                if (autoSearchTimerRef.current != null) {
-                  window.clearTimeout(autoSearchTimerRef.current)
-                  autoSearchTimerRef.current = null
-                }
-              }}
-              onPointerUp={() => {
-                isSliderInteractingRef.current = false
-                if (autoSearchTimerRef.current != null) {
-                  window.clearTimeout(autoSearchTimerRef.current)
-                  autoSearchTimerRef.current = null
-                }
-                triggerSearchForRadius(pendingSliderRadiusRef.current)
-              }}
-              onPointerCancel={() => {
-                isSliderInteractingRef.current = false
-                if (autoSearchTimerRef.current != null) {
-                  window.clearTimeout(autoSearchTimerRef.current)
-                  autoSearchTimerRef.current = null
-                }
-                triggerSearchForRadius(pendingSliderRadiusRef.current)
-              }}
-              onInput={(e) => {
-                const next = Number((e.target as HTMLInputElement).value)
-                pendingSliderRadiusRef.current = next
-                // Update the visible miles instantly while sliding.
-                onSearchRadiusMilesChange(next)
-              }}
-              onChange={(e) => {
-                // Some browsers only reliably fire `change` at the end of interaction.
-                const next = Number((e.target as HTMLInputElement).value)
-                pendingSliderRadiusRef.current = next
-                onSearchRadiusMilesChange(next)
-
-                // For keyboard users (or browsers without pointer events), debounce here.
-                if (!isSliderInteractingRef.current) {
+            <div className="flex items-center w-full">
+              <input
+                type="range"
+                min={1}
+                max={20}
+                step="0.1"
+                value={searchRadiusMiles}
+                onPointerDown={() => {
+                  isSliderInteractingRef.current = true
                   if (autoSearchTimerRef.current != null) {
                     window.clearTimeout(autoSearchTimerRef.current)
                     autoSearchTimerRef.current = null
                   }
-                  autoSearchTimerRef.current = window.setTimeout(() => {
-                    // Skip if we already triggered very recently (e.g. pointerUp -> onChange).
-                    if (Date.now() - lastSearchTriggeredAtRef.current < 450) return
-                    triggerSearchForRadius(pendingSliderRadiusRef.current)
+                }}
+                onPointerUp={() => {
+                  isSliderInteractingRef.current = false
+                  if (autoSearchTimerRef.current != null) {
+                    window.clearTimeout(autoSearchTimerRef.current)
                     autoSearchTimerRef.current = null
-                  }, 400)
+                  }
+                  triggerSearchForRadius(pendingSliderRadiusRef.current)
+                }}
+                onPointerCancel={() => {
+                  isSliderInteractingRef.current = false
+                  if (autoSearchTimerRef.current != null) {
+                    window.clearTimeout(autoSearchTimerRef.current)
+                    autoSearchTimerRef.current = null
+                  }
+                  triggerSearchForRadius(pendingSliderRadiusRef.current)
+                }}
+                onInput={(e) => {
+                  const next = Number((e.target as HTMLInputElement).value)
+                  pendingSliderRadiusRef.current = next
+                  // Update the visible miles instantly while sliding.
+                  onSearchRadiusMilesChange(next)
+                }}
+                onChange={(e) => {
+                  // Some browsers only reliably fire `change` at the end of interaction.
+                  const next = Number((e.target as HTMLInputElement).value)
+                  pendingSliderRadiusRef.current = next
+                  onSearchRadiusMilesChange(next)
+
+                  // For keyboard users (or browsers without pointer events), debounce here.
+                  if (!isSliderInteractingRef.current) {
+                    if (autoSearchTimerRef.current != null) {
+                      window.clearTimeout(autoSearchTimerRef.current)
+                      autoSearchTimerRef.current = null
+                    }
+                    autoSearchTimerRef.current = window.setTimeout(() => {
+                      // Skip if we already triggered very recently (e.g. pointerUp -> onChange).
+                      if (
+                        Date.now() - lastSearchTriggeredAtRef.current < 450
+                      )
+                        return
+                      triggerSearchForRadius(pendingSliderRadiusRef.current)
+                      autoSearchTimerRef.current = null
+                    }, 400)
+                  }
+                }}
+                style={
+                  // Used by our custom CSS to render a filled "Mobile App" track.
+                  ({
+                    '--fill-percent': `${radiusPercent}%`,
+                  } as unknown as React.CSSProperties)
                 }
-              }}
-              style={
-                // Used by our custom CSS to render a filled "Mobile App" track.
-                ({ '--fill-percent': `${radiusPercent}%` } as unknown as React.CSSProperties)
-              }
-              className="range-mobile-slider w-full"
-              aria-label="Search radius in miles"
-            />
+                className="range-mobile-slider w-full"
+                aria-label="Search radius in miles"
+              />
+            </div>
           </div>
           <div className="flex items-center justify-between text-[11px] font-medium text-white/60">
             <span>1 mi</span>

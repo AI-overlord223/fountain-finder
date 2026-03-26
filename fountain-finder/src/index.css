@@ -33,27 +33,29 @@ body {
 }
 
 .range-mobile-slider {
+  /* kept for compatibility; primary selector below is input[type='range'] */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type='range'].range-mobile-slider {
+  /* Reset appearance to clear broken browser default positioning */
   -webkit-appearance: none;
   appearance: none;
   display: block;
   width: 100%;
-  height: 20px; /* match thumb height for deterministic vertical centering */
+  height: 6px; /* track height */
   border-radius: 9999px;
   margin: 0;
   padding: 0;
   vertical-align: middle;
   line-height: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(37, 99, 235, 1) var(--fill-percent, 0%),
-    rgba(255, 255, 255, 0.18) var(--fill-percent, 0%)
-  );
+  background: transparent;
   outline: none;
 }
 
 .range-mobile-slider::-webkit-slider-runnable-track {
-  height: 8px;
-  margin-top: 6px; /* (20 - 8) / 2 */
+  height: 6px; /* track height */
   border-radius: 9999px;
   background: linear-gradient(
     90deg,
@@ -63,14 +65,15 @@ body {
 }
 
 .range-mobile-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
+  -webkit-appearance: none; /* required by request */
   appearance: none;
   width: 20px;
   height: 20px;
   border-radius: 9999px;
   background: rgba(37, 99, 235, 1);
   border: 0;
-  margin-top: -1px; /* micro-adjust for engine-specific centering */
+  /* (Track Height / 2) - (Thumb Height / 2) = (6/2) - (20/2) = -7px */
+  margin-top: -7px;
   box-shadow:
     0 10px 22px rgba(2, 6, 23, 0.4),
     0 0 0 2px rgba(255, 255, 255, 0.95),
@@ -85,7 +88,8 @@ body {
   border-radius: 9999px;
   background: rgba(37, 99, 235, 1);
   border: 0;
-  margin-top: -1px; /* micro-adjust for engine-specific centering */
+  /* same math for Firefox */
+  margin-top: -7px;
   box-shadow:
     0 10px 22px rgba(2, 6, 23, 0.4),
     0 0 0 2px rgba(255, 255, 255, 0.95),
@@ -95,8 +99,7 @@ body {
 }
 
 .range-mobile-slider::-moz-range-track {
-  height: 8px;
-  margin-top: 6px; /* (20 - 8) / 2 */
+  height: 6px; /* track height */
   border-radius: 9999px;
   background: linear-gradient(
     90deg,
