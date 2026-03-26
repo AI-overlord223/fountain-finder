@@ -15,6 +15,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [demoMode, setDemoMode] = useState(false)
+  const [searchRadiusMiles, setSearchRadiusMiles] = useState<number>(5.5)
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -36,16 +37,17 @@ export default function App() {
   }, [])
 
   const handleSearchArea = useCallback(
-    async (lat: number, lon: number) => {
+    async (lat: number, lon: number, radiusMiles: number) => {
       setLoading(true)
       setSearchError(null)
       try {
+        const radiusMeters = Math.round(radiusMiles * 1609.0)
         if (demoMode) {
           const anchorLat = userPosition?.[0] ?? lat
           const anchorLon = userPosition?.[1] ?? lon
           setFountains(getSampleFountainsNear(anchorLat, anchorLon))
         } else {
-          const results = await fetchDrinkingWaterNear(lat, lon, 2000)
+          const results = await fetchDrinkingWaterNear(lat, lon, radiusMeters)
           setFountains(results)
         }
       } catch (e) {
@@ -75,6 +77,8 @@ export default function App() {
         onSearchArea={handleSearchArea}
         demoMode={demoMode}
         onDemoModeChange={setDemoMode}
+        searchRadiusMiles={searchRadiusMiles}
+        onSearchRadiusMilesChange={setSearchRadiusMiles}
       />
     </div>
   )

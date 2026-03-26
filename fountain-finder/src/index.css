@@ -5,6 +5,33 @@
   border-radius: 0.5rem;
 }
 
+.leaflet-pane,
+.leaflet-container {
+  background: #0b1220;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Native-app feel: no page scrollbars. Panel/list scrolling remains internal. */
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Hide scrollbars while preserving scrolling. */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/old Edge */
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .user-location-marker {
   background: transparent;
   border: none;
@@ -13,4 +40,22 @@
 .fountain-droplet-marker {
   background: transparent !important;
   border: none !important;
+  will-change: transform;
+  animation: fountainBounce 0.9s ease-out both;
+  transform-origin: center bottom;
+}
+
+@keyframes fountainBounce {
+  0% {
+    opacity: 0.6;
+    transform: translateY(6px) scale(0.92);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0px) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0px) scale(1);
+  }
 }

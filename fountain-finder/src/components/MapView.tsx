@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   MapContainer,
   Marker,
@@ -9,6 +9,7 @@ import {
 import L from 'leaflet'
 import { Loader2 } from 'lucide-react'
 import {
+  googleMapsDirectionsUrl,
   fountainDisplayName,
   openGoogleMapsDirections,
   type OverpassElement,
@@ -83,14 +84,18 @@ export function MapView({
   onSearchArea,
   demoMode,
   onDemoModeChange,
+  searchRadiusMiles,
+  onSearchRadiusMilesChange,
 }: {
   userPosition: [number, number] | null
   fountains: OverpassElement[]
   loading: boolean
   error: string | null
-  onSearchArea: (lat: number, lon: number) => void
+  onSearchArea: (lat: number, lon: number, radiusMiles: number) => void
   demoMode: boolean
   onDemoModeChange: (value: boolean) => void
+  searchRadiusMiles: number
+  onSearchRadiusMilesChange: (value: number) => void
 }) {
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null)
 
@@ -99,12 +104,54 @@ export function MapView({
   const handleSearchClick = () => {
     if (!mapInstance) return
     const c = mapInstance.getCenter()
-    onSearchArea(c.lat, c.lng)
+    onSearchArea(c.lat, c.lng, searchRadiusMiles)
   }
 
   const handleMapReady = useCallback((map: L.Map) => {
     setMapInstance(map)
   }, [])
+
+  const radiusPercent = useMemo(() => {
+    const min = 1
+    const max = 20
+    return ((searchRadiusMiles - min) / (max - min)) * 100
+  }, [searchRadiusMiles])
+
+  const flyToFountain = useCallback(
+    (lat: number, lon: number) => {
+      if (!mapInstance) return
+      mapInstance.flyTo([lat, lon], 17, { duration: 1.2 })
+    },
+    [mapInstance]
+  )
+
+  const copyCoordinates = useCallback(async (lat: number, lon: number) => {
+    const text = `${lat.toFixed(6)}, ${lon.toFixed(6)}`
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+    // Fallback: prompt is ugly but guarantees "Copy" works.
+    window.prompt('Copy coordinates:', text)
+  }, [])
+
+  const shareFountain = useCallback(async (name: string, lat: number, lon: number) => {
+    const url = googleMapsDirectionsUrl(lat, lon)
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Water Fountain Finder',
+          text: name,
+          url,
+        })
+        return
+      }
+    } catch {
+      // User cancelled share, etc.
+    }
+    // Fallback: copy a share-friendly text payload.
+    await copyCoordinates(lat, lon)
+  }, [copyCoordinates])
 
   return (
     <div className="relative h-dvh w-full">
@@ -115,8 +162,9 @@ export function MapView({
         scrollWheelZoom
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          // Dark, grayscale base with no labels for shops/businesses.
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}{r}.png"
         />
         <RecenterOnUser position={userPosition} />
         <MapInstanceBridge onReady={handleMapReady} />
@@ -126,14 +174,20 @@ export function MapView({
           </Marker>
         )}
         {fountains.map((el) => {
-          const lat = el.lat!
-          const lon = el.lon!
+          const lat = el.lat ?? 0
+          const lon = el.lon ?? 0
           const name = fountainDisplayName(el.tags)
           return (
             <Marker
               key={`${el.type}-${el.id}`}
               position={[lat, lon]}
               icon={fountainMarkerIcon}
+              eventHandlers={{
+                click: () => {
+                  // Smoothly focus the map on the tapped fountain.
+                  flyToFountain(lat, lon)
+                },
+              }}
             >
               <Popup>
                 <FountainPopupBody name={name} lat={lat} lon={lon} />
@@ -145,20 +199,19 @@ export function MapView({
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex justify-center px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
         <div
-          className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/20 bg-white/35 p-4 shadow-2xl shadow-slate-900/10 backdrop-blur-xl ring-1 ring-white/30 dark:border-white/10 dark:bg-slate-900/45 dark:ring-white/10"
-          style={{ WebkitBackdropFilter: 'blur(12px)' }}
+          className="pointer-events-auto w-full max-w-md rounded-3xl border border-white/15 bg-white/20 p-4 shadow-2xl shadow-black/10 backdrop-blur-[10px] ring-1 ring-white/20"
         >
-          <div className="mb-3 flex flex-col gap-1 text-center">
-            <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">
+          <div className="mb-3 text-center">
+            <h1 className="text-base font-semibold tracking-tight text-slate-50">
               Water Fountain Finder
             </h1>
-            <p className="text-xs text-slate-600 dark:text-slate-300">
-              Search within 2 km of the map center — pan first, then search.
+            <p className="mt-1 text-xs text-white/70">
+              Pan the map, then search within your chosen radius.
             </p>
           </div>
 
-          <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/30 bg-white/40 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-white/10">
-            <span className="font-medium text-slate-800 dark:text-slate-100">
+          <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/20 bg-white/15 px-3 py-2.5 text-sm">
+            <span className="font-medium text-white/90">
               Demo mode
             </span>
             <span className="relative inline-flex h-7 w-12 shrink-0 items-center">
@@ -186,11 +239,36 @@ export function MapView({
             </span>
           </label>
 
+          <div className="mb-3 rounded-2xl border border-white/15 bg-white/10 p-3 backdrop-blur-[10px]">
+            <div className="relative mb-2">
+              <div
+                className="pointer-events-none absolute -top-9 z-10 whitespace-nowrap rounded-full border border-white/20 bg-black/40 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur"
+                style={{ left: `${radiusPercent}%`, transform: 'translateX(-50%)' }}
+              >
+                Search Radius: {searchRadiusMiles.toFixed(1)} miles
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={20}
+                step={0.1}
+                value={searchRadiusMiles}
+                onChange={(e) => onSearchRadiusMilesChange(Number(e.target.value))}
+                className="w-full accent-white"
+                aria-label="Search radius in miles"
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] font-medium text-white/60">
+              <span>1 mi</span>
+              <span>20 mi</span>
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={handleSearchClick}
             disabled={loading || !mapInstance}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98]"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/25 bg-white/20 px-4 py-3.5 text-sm font-semibold text-white shadow-sm backdrop-blur-xl transition active:scale-[0.98] hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
               <>
@@ -206,10 +284,69 @@ export function MapView({
           </button>
 
           {error && (
-            <p className="mt-3 rounded-lg border border-red-200/80 bg-red-50/90 px-3 py-2 text-center text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+            <p className="mt-3 rounded-lg border border-red-200/60 bg-red-500/10 px-3 py-2 text-center text-xs text-red-200">
               {error}
             </p>
           )}
+
+          <div className="mt-3 max-h-[38vh] overflow-y-auto rounded-2xl border border-white/15 bg-white/10 p-2.5 backdrop-blur-[10px]">
+            <div className="px-2 pb-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
+                Fountain Status
+              </div>
+            </div>
+
+            {fountains.length === 0 ? (
+              <p className="px-3 pb-3 text-xs text-white/60">
+                No fountains yet. Try searching your area.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2 px-2 pb-2">
+                {fountains.map((el) => {
+                  const lat = el.lat ?? 0
+                  const lon = el.lon ?? 0
+                  const name = fountainDisplayName(el.tags)
+                  return (
+                    <div
+                      key={`card-${el.type}-${el.id}`}
+                      className="rounded-xl border border-white/15 bg-white/15 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-white">
+                            {name}
+                          </div>
+                          <div className="mt-1 text-[11px] font-medium text-white/70">
+                            {lat.toFixed(5)}, {lon.toFixed(5)}
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-emerald-400/90 px-2.5 py-1 text-[11px] font-semibold text-emerald-950 shadow-sm">
+                          Available
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyCoordinates(lat, lon)}
+                          className="flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-2 text-[12px] font-semibold text-white transition hover:bg-white/15 active:scale-[0.98]"
+                        >
+                          Copy Coordinates
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => shareFountain(name, lat, lon)}
+                          className="flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-2 text-[12px] font-semibold text-white transition hover:bg-white/15 active:scale-[0.98]"
+                        >
+                          Share
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
