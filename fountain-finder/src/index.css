@@ -1,0 +1,16 @@
+@import 'tailwindcss';
+
+/* Leaflet popup: keep typography readable with Tailwind-in-popup content */
+.leaflet-popup-content-wrapper {
+  border-radius: 0.5rem;
+}
+
+.user-location-marker {
+  background: transparent;
+  border: none;
+}
+
+.fountain-droplet-marker {
+  background: transparent !important;
+  border: none !important;
+}
