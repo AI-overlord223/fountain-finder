@@ -35,9 +35,14 @@ body {
 .range-mobile-slider {
   -webkit-appearance: none;
   appearance: none;
+  display: block;
   width: 100%;
-  height: 8px;
+  height: 20px; /* match thumb height for deterministic vertical centering */
   border-radius: 9999px;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  line-height: 0;
   background: linear-gradient(
     90deg,
     rgba(37, 99, 235, 1) var(--fill-percent, 0%),
@@ -48,6 +53,7 @@ body {
 
 .range-mobile-slider::-webkit-slider-runnable-track {
   height: 8px;
+  margin-top: 6px; /* (20 - 8) / 2 */
   border-radius: 9999px;
   background: linear-gradient(
     90deg,
@@ -63,11 +69,14 @@ body {
   height: 20px;
   border-radius: 9999px;
   background: rgba(37, 99, 235, 1);
-  border: 2px solid rgba(255, 255, 255, 0.95);
+  border: 0;
+  margin-top: 0;
   box-shadow:
     0 10px 22px rgba(2, 6, 23, 0.4),
+    0 0 0 2px rgba(255, 255, 255, 0.95),
     0 0 0 6px rgba(37, 99, 235, 0.15);
   cursor: pointer;
+  transform: translateY(0);
 }
 
 .range-mobile-slider::-moz-range-thumb {
@@ -75,15 +84,19 @@ body {
   height: 20px;
   border-radius: 9999px;
   background: rgba(37, 99, 235, 1);
-  border: 2px solid rgba(255, 255, 255, 0.95);
+  border: 0;
+  margin-top: 0;
   box-shadow:
     0 10px 22px rgba(2, 6, 23, 0.4),
+    0 0 0 2px rgba(255, 255, 255, 0.95),
     0 0 0 6px rgba(37, 99, 235, 0.15);
   cursor: pointer;
+  transform: translateY(0);
 }
 
 .range-mobile-slider::-moz-range-track {
   height: 8px;
+  margin-top: 6px; /* (20 - 8) / 2 */
   border-radius: 9999px;
   background: linear-gradient(
     90deg,
