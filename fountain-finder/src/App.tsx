@@ -16,6 +16,9 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null)
   const [demoMode, setDemoMode] = useState(false)
   const [searchRadiusMiles, setSearchRadiusMiles] = useState<number>(5.5)
+  const [searchCenter, setSearchCenter] = useState<[number, number] | null>(
+    null
+  )
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -40,6 +43,7 @@ export default function App() {
     async (lat: number, lon: number, radiusMiles: number) => {
       setLoading(true)
       setSearchError(null)
+      setSearchCenter([lat, lon])
       try {
         const radiusMeters = Math.round(radiusMiles * 1609.0)
         if (demoMode) {
@@ -79,6 +83,7 @@ export default function App() {
         onDemoModeChange={setDemoMode}
         searchRadiusMiles={searchRadiusMiles}
         onSearchRadiusMilesChange={setSearchRadiusMiles}
+        searchCenter={searchCenter}
       />
     </div>
   )
