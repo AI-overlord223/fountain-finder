@@ -109,6 +109,8 @@ export function MapView({
   const [activeStableId, setActiveStableId] = useState<string | null>(null)
   const mapHostRef = useRef<HTMLDivElement | null>(null)
   const dragStartYRef = useRef<number | null>(null)
+  const autoSearchTimerRef = useRef<number | null>(null)
+  const latestRadiusRef = useRef<number>(searchRadiusMiles)
 
   const fountainsLayerRef = useRef<L.FeatureGroup | null>(null)
   const fountainMarkersRef = useRef<Record<string, L.Marker>>({})
@@ -126,9 +128,49 @@ export function MapView({
 
   const handleSearchClick = () => {
     if (!mapInstance) return
+    // If an auto-search is queued, cancel it so the manual search is the only one.
+    if (autoSearchTimerRef.current != null) {
+      window.clearTimeout(autoSearchTimerRef.current)
+      autoSearchTimerRef.current = null
+    }
+
     const c = mapInstance.getCenter()
     onSearchArea(c.lat, c.lng, searchRadiusMiles)
   }
+
+  const scheduleAutoSearch = useCallback(
+    (radiusMiles: number) => {
+      if (!mapInstance) return
+      if (loading) return
+
+      if (autoSearchTimerRef.current != null) {
+        window.clearTimeout(autoSearchTimerRef.current)
+      }
+
+      autoSearchTimerRef.current = window.setTimeout(() => {
+        if (!mapInstance) return
+        const c = mapInstance.getCenter()
+        onSearchArea(c.lat, c.lng, radiusMiles)
+        autoSearchTimerRef.current = null
+      }, 350) // search when user stops sliding
+    },
+    [mapInstance, loading, onSearchArea]
+  )
+
+  // Keep latest radius value for consistent debounced searches.
+  useEffect(() => {
+    latestRadiusRef.current = searchRadiusMiles
+  }, [searchRadiusMiles])
+
+  // Cleanup queued timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (autoSearchTimerRef.current != null) {
+        window.clearTimeout(autoSearchTimerRef.current)
+        autoSearchTimerRef.current = null
+      }
+    }
+  }, [])
 
   const selectFountain = useCallback(
     (lat: number, lon: number, stableId: string) => {
@@ -408,10 +450,28 @@ export function MapView({
               type="range"
               min={1}
               max={20}
-              step={0.1}
+              step="0.1"
               value={searchRadiusMiles}
-              onChange={(e) => onSearchRadiusMilesChange(Number(e.target.value))}
-              className="w-full accent-white"
+              onInput={(e) => {
+                const next = Number((e.target as HTMLInputElement).value)
+                latestRadiusRef.current = next
+                // Update the visible miles instantly while sliding.
+                onSearchRadiusMilesChange(next)
+                // Only trigger a map search after the user stops moving the slider.
+                scheduleAutoSearch(next)
+              }}
+              onChange={(e) => {
+                // Some browsers only reliably fire `change` at the end of interaction.
+                const next = Number((e.target as HTMLInputElement).value)
+                latestRadiusRef.current = next
+                onSearchRadiusMilesChange(next)
+                scheduleAutoSearch(next)
+              }}
+              style={
+                // Used by our custom CSS to render a filled "Mobile App" track.
+                ({ '--fill-percent': `${radiusPercent}%` } as unknown as React.CSSProperties)
+              }
+              className="range-mobile-slider w-full"
               aria-label="Search radius in miles"
             />
           </div>
